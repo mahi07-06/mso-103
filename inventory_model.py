@@ -20,7 +20,7 @@ import numpy as np
 from sklearn.linear_model import PoissonRegressor
 
 import config as C
-from stats_utils import gamma_cdf, gamma_ppf, ks_test
+from scipy import stats
 
 TWO_PI = 2.0 * math.pi
 DAYS = np.arange(C.P) + 0.5          # the middle of each day of the year: 0.5, 1.5, ... 364.5
@@ -155,9 +155,10 @@ def analyse_mill(mill_index, mill, cfg, data):
 
     # ---- STEP 3: safety stock                                Z = G^-1(alpha) - G^-1(50%)   (eq. 4)
     # The gap between ships at this mill follows Gamma(N_i, lambda).
-    # gamma_ppf gives the gap for rate 1; dividing by the real rate converts it to days.
-    late_gap = gamma_ppf(C.SERVICE_LEVEL, n_i)     # a "late" ship (95th percentile)
-    normal_gap = gamma_ppf(0.50, n_i)              # a "normal" ship (median)
+    # stats.gamma.ppf = G^-1 of the paper: the gap not exceeded with probability p (for rate 1).
+    # Dividing by the real arrival rate converts it to days.
+    late_gap = stats.gamma.ppf(C.SERVICE_LEVEL, n_i)     # a "late" ship (95th percentile)
+    normal_gap = stats.gamma.ppf(0.50, n_i)              # a "normal" ship (median)
 
     safety_seasonal = (late_gap - normal_gap) / lam_now     # 365 values: changes with the season
     safety_flat = (late_gap - normal_gap) / lam_bar         # if we ignored the seasons
@@ -172,10 +173,9 @@ def analyse_mill(mill_index, mill, cfg, data):
     rescaled_times = data["rescale"](data["times"][ships_to_mill])
     rescaled_gaps = np.diff(rescaled_times)
 
-    def model_cdf(gap):
-        return gamma_cdf(gap, n_i)
-
-    ks_statistic, ks_p_value = ks_test(rescaled_gaps, model_cdf)
+    # scipy's Kolmogorov-Smirnov test against Gamma(shape = N_i)
+    ks = stats.kstest(rescaled_gaps, "gamma", args=(n_i,))
+    ks_statistic, ks_p_value = ks.statistic, ks.pvalue
 
     # ---- STEP 5: inventory simulation on 30 fresh years the model has never seen.
     # Each ship tops the yard up to the planned level; the mill then burns 1 day of

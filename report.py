@@ -14,7 +14,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 import config as C
-from stats_utils import gamma_pdf
+from scipy import stats
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
 BLUE, RED, GREY = "#1f5fa8", "#c0392b", "#7f8c8d"
@@ -87,7 +87,7 @@ def make_charts(groups, summary, grouping):
         gaps = d["gaps_tau"] / G["lam_bar"]                 # season-adjusted intervals [days]
         x = np.linspace(0, gaps.max() * 1.1, 200)
         ax.hist(gaps, bins=12, density=True, color="#d6e4f5", edgecolor="white")
-        ax.plot(x, gamma_pdf(x * G["lam_bar"], d["n_i"]) * G["lam_bar"], color=BLUE, lw=2)
+        ax.plot(x, stats.gamma.pdf(x * G["lam_bar"], d["n_i"]) * G["lam_bar"], color=BLUE, lw=2)
         ax.set_title(f"{mill}: Gamma(N={d['n_i']:.2f})\nKS p-value = {d['ks_p']:.2f}", fontsize=9)
         ax.set_xlabel("interval between ships [days]")
     fig.suptitle(f"Stage 2 (AEM): arrival intervals at each mill vs Gamma model - {g0}", fontweight="bold")

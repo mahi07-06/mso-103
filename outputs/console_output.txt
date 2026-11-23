@@ -31,16 +31,16 @@ Pellet (Brazil): 437 ships in 10 years
 ==============================================================================
 STEP 4  Statistical validation: Kolmogorov-Smirnov test (slide: Validation)
 ==============================================================================
-  Fine ore (Australia)   Mill A   p-value 0.47  pass
+  Fine ore (Australia)   Mill A   p-value 0.46  pass
   Fine ore (Australia)   Mill B   p-value 0.33  pass
-  Fine ore (Australia)   Mill C   p-value 0.41  pass
-  Fine ore (Australia)   Mill D   p-value 0.53  pass
-  Lump ore (Australia)   Mill A   p-value 0.48  pass
-  Lump ore (Australia)   Mill B   p-value 0.63  pass
-  Lump ore (Australia)   Mill C   p-value 0.73  pass
-  Pellet (Brazil)        Mill B   p-value 0.92  pass
-  Pellet (Brazil)        Mill C   p-value 0.73  pass
-  Pellet (Brazil)        Mill D   p-value 0.52  pass
+  Fine ore (Australia)   Mill C   p-value 0.40  pass
+  Fine ore (Australia)   Mill D   p-value 0.52  pass
+  Lump ore (Australia)   Mill A   p-value 0.47  pass
+  Lump ore (Australia)   Mill B   p-value 0.61  pass
+  Lump ore (Australia)   Mill C   p-value 0.71  pass
+  Pellet (Brazil)        Mill B   p-value 0.91  pass
+  Pellet (Brazil)        Mill C   p-value 0.71  pass
+  Pellet (Brazil)        Mill D   p-value 0.51  pass
   -> 10 of 10 pass   [paper: most pass, brand group 7 fails]
 
 ==============================================================================

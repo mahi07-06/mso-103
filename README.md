@@ -84,5 +84,5 @@ constant, as in the paper.
 | `config.py` | Every assumption and input |
 | `inventory_model.py` | Steps 0 to 6 |
 | `brand_grouping.py` | Step 7 |
-| `stats_utils.py` | Gamma distribution and KS test, written with numpy only |
+| (scipy.stats) | Gamma distribution (`stats.gamma`) and KS test (`stats.kstest`) come from scipy |
 | `report.py` | Charts and the Excel workbook |

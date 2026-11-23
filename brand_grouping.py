@@ -11,7 +11,7 @@ There is no optimiser here, just the paper's formula applied twice:
 and the difference in holding days, normalised so the original total = 100.
 """
 import config as C
-from stats_utils import gamma_ppf
+from scipy import stats
 
 
 def stock_needed(brands, mill_index):
@@ -26,8 +26,8 @@ def stock_needed(brands, mill_index):
 
     n_i = ships_to_japan / ships_to_mill            # every N-th ship comes to this mill
     arrival_rate = ships_to_japan / C.P             # ships per day arriving in Japan
-    late_gap = gamma_ppf(C.SERVICE_LEVEL, n_i)      # D, for rate 1
-    normal_gap = gamma_ppf(0.50, n_i)               # A, for rate 1
+    late_gap = stats.gamma.ppf(C.SERVICE_LEVEL, n_i)      # D, for rate 1
+    normal_gap = stats.gamma.ppf(0.50, n_i)               # A, for rate 1
     safety_days = (late_gap - normal_gap) / arrival_rate
 
     usage = ships_to_mill * C.LOT_KT / C.P          # kt burned per day
