@@ -26,7 +26,7 @@ exactly as it would with real data.
 | Step | What happens | Slide | File |
 |---|---|---|---|
 | 0 | Simulate 10 years of ship arrivals for 3 brand groups and 4 mills | Data & Input | `inventory_model.py` |
-| 1 | **Stage 1 (AAM):** ships arrive in Japan as a Poisson process whose rate λ(t) changes with the season. λ(t) is an exponential Fourier series fitted by maximum likelihood (Newton's method); AIC picks the number of terms | Methodology | `inventory_model.py` |
+| 1 | **Stage 1 (AAM):** ships arrive in Japan as a Poisson process whose rate λ(t) changes with the season. λ(t) is an exponential Fourier series. We count ships per day and fit it with scikit-learn's `PoissonRegressor` on cos/sin features (maximum likelihood); AIC picks the number of terms | Methodology | `inventory_model.py` |
 | 2 | **Stage 2 (AEM):** mill i receives every N_i-th ship, N_i = Q / q_i, so the gap between its ships follows a Gamma(N_i, λ(t)) distribution | Methodology | `inventory_model.py` |
 | 3 | **Safety stock** Z = D − A = G⁻¹(α) − G⁻¹(50%): the gap for a late ship minus the gap for a normal ship. **Optimal stock** = cycle stock (half a shipload) + Z | Calculating Safety Stock | `inventory_model.py` |
 | 4 | **KS test:** do the real gaps at each mill look like the gamma model? | Validation | `inventory_model.py` |
@@ -38,8 +38,14 @@ Why the stock changes with the season: in winter fewer ships arrive (λ(t) is lo
 gap between ships is longer and more variable, so Z is larger. In summer λ(t) is high, so
 Z is smaller. The manager holds the winter level all year; the model does not.
 
-Link to the course: step 1 is an unconstrained **nonlinear optimisation** (maximise the
-log-likelihood), solved with Newton's method, with AIC for model selection.
+Why `PoissonRegressor` fits the paper's formula: a Poisson regression predicts a count as
+exp(features × coefficients). With features [1, cos, sin, …] that is exactly λ(t) in the
+paper, so the fitted coefficients are the paper's A and B values. We set `alpha=0` to switch
+off sklearn's default penalty, so it is the plain maximum-likelihood fit the paper uses.
+
+Link to the course: fitting λ(t) is an unconstrained **nonlinear optimisation** (maximise the
+log-likelihood); sklearn solves it with Newton's method (`solver="newton-cholesky"`).
+AIC chooses the number of harmonics.
 
 ## Simplifying assumptions (all in `config.py`)
 

@@ -70,13 +70,13 @@ def make_charts(groups, summary, grouping):
         ax.bar(MONTH_START + 15, counts / (C.YEARS_HISTORY * np.array(C.MONTH_DAYS)), width=24,
                color="#d6e4f5", label="observed (10 yrs of ships)")
         ax.plot(G["lam_true"], color=GREY, ls="--", label="true rate (hidden)")
-        ax.plot(G["fit"]["lam_day"], color=BLUE, lw=2, label=f"MLE fit, {G['fit']['order']} harmonic(s)")
+        ax.plot(G["fit"]["lam_day"], color=BLUE, lw=2, label=f"PoissonRegressor fit, {G['fit']['order']} harmonic(s)")
         ax.set_title(g)
         ax.set_ylabel("ships arriving in Japan per day")
         ax.set_ylim(0, None)
         _month_axis(ax)
         ax.legend(fontsize=8, loc="lower right")
-    fig.suptitle("Stage 1 (AAM): seasonal arrival rate λ(t) fitted by maximum likelihood", fontweight="bold")
+    fig.suptitle("Stage 1 (AAM): seasonal arrival rate λ(t) fitted by Poisson regression", fontweight="bold")
     files.append(_save(fig, "fig1_seasonal_arrival_rate.png"))
 
     # 2. gamma fit of intervals at each mill (paper Fig. 6 / 9)
@@ -209,7 +209,7 @@ def make_workbook(groups, summary, grouping, chart_files):
         ["Holding days saved by revised brand grouping", f"{grouping['reduction']:.1f} %", "18.1 %"],
     ])
     row = _table(ws, row, ["Step", "What it does", "Presentation slide"], [
-        ["STEP 1", "Seasonal arrival rate λ(t) by maximum likelihood, harmonics by AIC", "Methodology: AAM, seasonality"],
+        ["STEP 1", "Seasonal arrival rate λ(t) by Poisson regression (sklearn), harmonics by AIC", "Methodology: AAM, seasonality"],
         ["STEP 2", "Every N_i-th ship goes to mill i, gap ~ Gamma(N_i, λ)", "Methodology: AEM"],
         ["STEP 3", "Z = G⁻¹(α) − G⁻¹(50%),  optimal stock = cycle + Z", "Calculating Safety Stock (Z)"],
         ["STEP 4", "Kolmogorov-Smirnov test of the gamma model", "Validation: statistical"],
@@ -305,9 +305,9 @@ def make_workbook(groups, summary, grouping, chart_files):
     rows = []
     for g, G in groups.items():
         t = G["fit"]["aic_table"]
-        rows += [[g, a["order"], a["n_params"], a["loglik"], a["aic"], a["newton_iters"],
+        rows += [[g, a["order"], a["n_params"], a["loglik"], a["aic"], a["iterations"],
                   "selected" if a["order"] == G["fit"]["order"] else ""] for a in t]
-    _table(ws, row, ["NHPP fit: brand group", "Harmonics", "Parameters", "Log-likelihood", "AIC", "Newton iterations", ""], rows)
+    _table(ws, row, ["NHPP fit: brand group", "Harmonics", "Parameters", "Log-likelihood", "AIC", "Solver iterations", ""], rows)
     _widths(ws, 44, 16)
 
     # ----------------------------------------------------------- Brand grouping

@@ -5,7 +5,7 @@ Read this file from top to bottom. Each STEP is one small function and
 matches a slide of our paper presentation.
 
   STEP 0  Make synthetic ship-arrival data          slide "Data & Input Validation"
-  STEP 1  Fit the seasonal arrival rate lambda(t)   slide "Methodology": Stage 1 AAM, seasonality
+  STEP 1  Fit the seasonal arrival rate lambda(t)   slide "Methodology": Stage 1 AAM, seasonality (PoissonRegressor)
   STEP 2  Find N_i = every N-th ship goes to mill i slide "Methodology": Stage 2 AEM, Gamma
   STEP 3  Safety stock Z and optimal stock I        slide "Calculating Safety Stock (Z)"
   STEP 4  KS test: does the gamma model fit?        slide "Validation": statistical validation
@@ -16,6 +16,8 @@ Units: time in days, stock in "days of usage" (1 day of usage = what the mill bu
 """
 import math
 import numpy as np
+
+from sklearn.linear_model import PoissonRegressor
 
 import config as C
 from stats_utils import gamma_cdf, gamma_ppf, ks_test
@@ -80,8 +82,12 @@ def simulate_arrivals(cfg, years, rng):
 # =============================================================================
 # STEP 1  Seasonal arrival rate (Stage 1, "arrival at all mills")
 # =============================================================================
-def fourier_columns(t, harmonics):
-    """Columns [1, cos, sin, cos2, sin2, ...] so that log lambda(t) = columns x coefficients."""
+def fourier_features(t, harmonics):
+    """
+    The features for each time t: [1, cos, sin, cos2, sin2, ...].
+    The column of 1s gives A1 (the average level); each cos/sin pair is one harmonic.
+    So log lambda(t) = features x coefficients, exactly the paper's eq. 6.
+    """
     columns = [np.ones_like(t)]
     for h in range(1, harmonics + 1):
         columns.append(np.cos(TWO_PI * h * t / C.P))
@@ -93,53 +99,41 @@ def fit_nhpp(times, years, max_order=3):
     """
     Fit  lambda(t) = exp(A1 + A2 cos(2 pi t/P) + B2 sin(2 pi t/P) + ...)   (paper eq. 6)
 
-    "Maximum likelihood" = choose the A's and B's that make the ships we actually
-    saw as likely as possible. This is an unconstrained nonlinear optimisation:
-        maximise   log-likelihood = sum over ships of log lambda(t_i)  -  total expected ships
-    We solve it with Newton's method:  new = old - (gradient / Hessian).
+    How: count the ships that arrive on each day of the 10 years, then fit a
+    Poisson regression of those daily counts on the cos/sin features.
+    A Poisson regression has exactly the paper's form, rate = exp(features x coefficients),
+    so its coefficients ARE the A's and B's of the paper (fitted by maximum likelihood).
 
-    We try 0, 1, 2, 3 harmonics and keep the one with the lowest AIC, as the paper does
+    alpha=0 switches off sklearn's default penalty, so this is the plain maximum-likelihood
+    fit the paper uses. We try 0, 1, 2, 3 harmonics and keep the lowest AIC, as the paper does
     (AIC = 2 x number of coefficients - 2 x log-likelihood; it punishes extra terms).
     """
-    day_of_year = times % C.P
+    n_days = years * C.P
+    ships_per_day = np.bincount(times.astype(int), minlength=n_days)[:n_days]   # y: ships on each day
+    day_of_year = np.arange(n_days) % C.P + 0.5                                 # middle of each day
+
     best = None
     aic_table = []
-
     for harmonics in range(max_order + 1):
-        X_ships = fourier_columns(day_of_year, harmonics)   # one row per ship
-        X_days = fourier_columns(DAYS, harmonics)           # one row per day of the year
+        X = fourier_features(day_of_year, harmonics)
+        # fit_intercept=False because the column of 1s already gives A1
+        model = PoissonRegressor(alpha=0, fit_intercept=False, solver="newton-cholesky",
+                                 tol=1e-10, max_iter=1000)
+        model.fit(X, ships_per_day)
 
-        def log_likelihood(coef):
-            return (X_ships @ coef).sum() - years * np.exp(X_days @ coef).sum()
-
-        # start from a flat rate (no seasonality)
-        coef = np.zeros(X_days.shape[1])
-        coef[0] = math.log(len(times) / (years * C.P))
-        current = log_likelihood(coef)
-
-        for iteration in range(1, 101):
-            rate = np.exp(X_days @ coef)
-            gradient = X_ships.sum(axis=0) - years * X_days.T @ rate
-            hessian = -years * X_days.T @ (rate[:, None] * X_days)
-            newton_step = np.linalg.solve(-hessian, gradient)
-
-            step_size = 1.0                      # halve the step if it would make things worse
-            while log_likelihood(coef + step_size * newton_step) < current and step_size > 1e-8:
-                step_size *= 0.5
-            coef = coef + step_size * newton_step
-
-            improved_by = abs(log_likelihood(coef) - current)
-            current = log_likelihood(coef)
-            if improved_by < 1e-10:              # converged
-                break
-
-        aic = 2 * len(coef) - 2 * current
-        aic_table.append(dict(order=harmonics, n_params=len(coef), loglik=current,
-                              aic=aic, newton_iters=iteration))
+        # log-likelihood of the daily counts under the fitted rates (needed for AIC)
+        expected = model.predict(X)
+        log_likelihood = np.sum(ships_per_day * np.log(expected) - expected
+                                - np.array([math.lgamma(k + 1) for k in ships_per_day]))
+        n_params = 1 + 2 * harmonics                          # A1 + one (A, B) pair per harmonic
+        aic = 2 * n_params - 2 * log_likelihood
+        aic_table.append(dict(order=harmonics, n_params=n_params, loglik=log_likelihood,
+                              aic=aic, iterations=int(model.n_iter_)))
 
         # keep the model with the lowest AIC (paper: "minimizing the value of the AIC")
         if best is None or aic < best["aic"]:
-            best = dict(order=harmonics, theta=coef, aic=aic, lam_day=np.exp(X_days @ coef))
+            best = dict(order=harmonics, theta=model.coef_, aic=aic,
+                        lam_day=model.predict(fourier_features(DAYS, harmonics)))
 
     best["aic_table"] = aic_table
     return best
