@@ -1,5 +1,6 @@
 """
 report.py - turns the results into charts (PNG) and an Excel workbook.
+Nothing here changes the results; it only draws them.
 """
 import os
 import numpy as np
@@ -16,7 +17,7 @@ import config as C
 from stats_utils import gamma_pdf
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
-BLUE, RED, GREY, GREEN = "#1f5fa8", "#c0392b", "#7f8c8d", "#2e8b57"
+BLUE, RED, GREY = "#1f5fa8", "#c0392b", "#7f8c8d"
 MGR, PROP, STAT = "Manager (flat)", "Proposed (seasonal)", "No seasonality"
 COL = {MGR: RED, PROP: BLUE, STAT: GREY}
 MONTH_START = np.concatenate([[0], np.cumsum(C.MONTH_DAYS)[:-1]])
@@ -41,8 +42,25 @@ def _save(fig, name):
     return path
 
 
+def simulate_trace(group, mill_name, days=C.P):
+    """
+    Day-by-day stock at one mill for one test year (for the simulation chart).
+    Each ship tops the yard up to the planned level; then stock falls 1 day per day.
+    Returns the time grid and the stock left under each policy, in days of usage.
+    """
+    k = group["mills"].index(mill_name)
+    d = group["per_mill"][mill_name]
+    arrivals = group["test_times"][(group["test_dest"] == k) & (group["test_times"] < days + 60)]
+    t = np.arange(arrivals[0], days, 0.25)
+    last = arrivals[np.searchsorted(arrivals, t, side="right") - 1]      # last ship before t
+    start_day = (last % C.P).astype(int)
+    level = {PROP: d["k_hi"] / group["lam_now"][start_day],                 # D(t) for this season
+             MGR: np.full(len(t), d["k_md"] / group["lam_bar"] + d["z_mgr"])}
+    return t, {p: level[p] - (t - last) for p in level}
+
+
 # ============================================================================ charts
-def make_charts(groups, summary, plans, grouping, pareto):
+def make_charts(groups, summary, grouping):
     files = []
 
     # 1. seasonal arrival intensity (paper Fig. 7)
@@ -55,6 +73,7 @@ def make_charts(groups, summary, plans, grouping, pareto):
         ax.plot(G["fit"]["lam_day"], color=BLUE, lw=2, label=f"MLE fit, {G['fit']['order']} harmonic(s)")
         ax.set_title(g)
         ax.set_ylabel("ships arriving in Japan per day")
+        ax.set_ylim(0, None)
         _month_axis(ax)
         ax.legend(fontsize=8, loc="lower right")
     fig.suptitle("Stage 1 (AAM): seasonal arrival rate λ(t) fitted by maximum likelihood", fontweight="bold")
@@ -80,14 +99,14 @@ def make_charts(groups, summary, plans, grouping, pareto):
     ax.plot(summary["pct_daily"], color=BLUE, lw=2.5, label="Proposed seasonal model")
     ax.fill_between(np.arange(C.P), summary["pct_daily"], 100, color=BLUE, alpha=0.08)
     ax.set_ylabel("proper inventory, all mills [% of manager policy]")
-    ax.set_ylim(min(60, summary["pct_daily"].min() - 5), 105)
+    ax.set_ylim(min(70, summary["pct_daily"].min() - 5), 105)
     _month_axis(ax)
-    ax.set_title(f"Optimal inventory for all mills: {summary['min_reduction']:.0f}% lower in the disruption season, "
-                 f"{summary['max_reduction']:.0f}% lower in the calm season", fontweight="bold", fontsize=10)
+    ax.set_title(f"Optimal inventory for all mills: {summary['winter_reduction']:.0f}% lower in winter, "
+                 f"{summary['summer_reduction']:.0f}% lower in summer", fontweight="bold", fontsize=10)
     ax.legend(loc="lower left")
     files.append(_save(fig, "fig3_seasonal_optimal_inventory.png"))
 
-    # 4. out-of-sample stock-out validation
+    # 4. stock-out rate by policy and season (paper Tables 2-3)
     fig, ax = plt.subplots(figsize=(7.5, 4))
     pols = [MGR, STAT, PROP]
     x = np.arange(2)
@@ -95,81 +114,47 @@ def make_charts(groups, summary, plans, grouping, pareto):
         r = summary["stockout_rates"][pol]
         bars = ax.bar(x + (k - 1) * 0.26, [r["low"], r["high"]], 0.25, color=COL[pol], label=pol)
         ax.bar_label(bars, fmt="%.1f%%", fontsize=8)
-    ax.axhline(100 * (1 - C.SERVICE_LEVEL), color="black", ls=":", label="target stock-out rate")
+    ax.axhline(100 * (1 - C.SERVICE_LEVEL), color="black", ls=":", label="target stock-out rate (5%)")
     ax.set_xticks(x)
-    ax.set_xticklabels(["disruption season\n(arrival rate below average)", "calm season\n(arrival rate above average)"])
+    ax.set_xticklabels(["disruption season\n(fewer ships than average)", "calm season\n(more ships than average)"])
     ax.set_ylabel("replenishment cycles with a stock-out [%]")
-    ax.set_title(f"Validation on {C.YEARS_TEST} fresh simulated years", fontweight="bold")
+    ax.set_title(f"Inventory simulation on {C.YEARS_TEST} fresh years: shortage ratio", fontweight="bold")
     ax.legend(fontsize=8)
     files.append(_save(fig, "fig4_stockout_validation.png"))
 
-    # 5. shipping plan: yard stock vs capacity
-    fig, axes = plt.subplots(2, 2, figsize=(10, 6), sharex=True)
-    for ax, mill in zip(axes.ravel(), C.MILLS):
-        for pol in (MGR, PROP):
-            ax.plot(range(12), plans["mip"][pol]["mill_inv"][mill], marker="o", ms=3, color=COL[pol], label=pol)
-        ax.axhline(plans["inputs"]["cap"][mill], color="black", ls="--", lw=1, label="yard capacity")
-        ax.set_title(mill)
-        ax.set_xticks(range(12))
-        ax.set_xticklabels(C.MONTHS, fontsize=8)
-        ax.set_ylabel("stock at month end [kt]")
-    axes[0, 0].legend(fontsize=8)
-    fig.suptitle("Integer-programming shipping plan: stock above the yard capacity waits at sea (demurrage)",
-                 fontweight="bold")
-    files.append(_save(fig, "fig5_shipping_plan_yard.png"))
-
-    # 6. cost comparison + yard-capacity sensitivity
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4))
-    bottom = np.zeros(2)
-    for key, colr in (("holding", "#9db8d9"), ("demurrage", RED), ("penalty", "#f0b27a")):
-        vals = np.array([plans["mip"][p][key] for p in (MGR, PROP)]) / 1000
-        a1.bar([0, 1], vals, 0.5, bottom=bottom, color=colr, label=key)
-        bottom += vals
-    for k in range(2):
-        a1.text(k, bottom[k], f"${bottom[k]:.1f}M", ha="center", va="bottom", fontweight="bold")
-    a1.set_xticks([0, 1])
-    a1.set_xticklabels([MGR, PROP])
-    a1.set_ylabel("annual cost [million US$]")
-    a1.set_title("Cost of the best integer plan found", fontweight="bold")
-    a1.legend(fontsize=8)
-    sc = [100 * r["scale"] for r in plans["sensitivity"]]
+    # 5. day-by-day inventory simulation at one mill (paper Fig. 10)
+    mill0 = G["mills"][0]
+    t, stock = simulate_trace(G, mill0)
+    fig, ax = plt.subplots(figsize=(9.5, 4))
     for pol in (MGR, PROP):
-        a2.plot(sc, [r[pol] / 1000 for r in plans["sensitivity"]], marker="o", color=COL[pol], label=pol)
-    a2.set_xlabel("yard capacity [% of base case]")
-    a2.set_ylabel("annual cost, LP relaxation [million US$]")
-    a2.set_title("Sensitivity: slope of each line = shadow price of yard space", fontweight="bold", fontsize=10)
-    a2.legend(fontsize=8)
-    files.append(_save(fig, "fig6_cost_and_yard_sensitivity.png"))
-
-    # 7. brand grouping
-    fig, ax = plt.subplots(figsize=(7.5, 4))
-    x = np.arange(len(grouping["rows"]))
-    for k, (key, lab, colr) in enumerate((("cost_individual", "every brand on its own", "#cfd8dc"),
-                                          ("cost_original", "original grouping", RED),
-                                          ("cost_optimal", "BIP-optimal grouping", BLUE))):
-        ax.bar(x + (k - 1) * 0.27, [r[key] for r in grouping["rows"]], 0.26, color=colr, label=lab)
-    ax.set_xticks(x)
-    ax.set_xticklabels([r["mill"] for r in grouping["rows"]])
-    ax.set_ylabel("fine-ore stock required [kt]")
-    ax.set_title(f"Brand grouping by binary programming: {grouping['reduction']:.0f}% less stock than the original groups",
+        ax.plot(t, stock[pol], color=COL[pol], lw=1.4, label=pol)
+    ax.fill_between(t, stock[PROP], 0, where=stock[PROP] < 0, color=BLUE, alpha=0.35,
+                    label="stock-out (proposed)")
+    ax.axhline(0, color="black", lw=1)
+    ax.set_ylabel("stock left [days of usage]")
+    _month_axis(ax)
+    ax.set_title(f"Inventory simulation, {g0} at {mill0} (one test year): below 0 = stock-out",
                  fontweight="bold", fontsize=10)
-    ax.legend(fontsize=8)
-    files.append(_save(fig, "fig7_brand_grouping.png"))
+    ax.legend(fontsize=8, loc="upper right")
+    files.append(_save(fig, "fig5_inventory_simulation.png"))
 
-    # 8. Pareto frontier
-    fig, ax = plt.subplots(figsize=(7.5, 4.2))
-    ax.plot([f["risk"] for f in pareto["frontier"]], [f["inv"] for f in pareto["frontier"]],
-            marker="o", color=BLUE, label="Pareto frontier (service level chosen per mill & group)")
-    ax.scatter([u["risk"] for u in pareto["uniform"]], [u["inv"] for u in pareto["uniform"]],
-               color=RED, marker="x", zorder=3, label="same service level everywhere")
-    for u in pareto["uniform"]:
-        ax.annotate(f"{100 * u['alpha']:g}%", (u["risk"], u["inv"]), textcoords="offset points",
-                    xytext=(5, 5), fontsize=7, color=RED)
-    ax.set_xlabel("expected stock-out cycles per year (all mills)")
-    ax.set_ylabel("total stock [kt]")
-    ax.set_title("Two objectives: less inventory vs fewer stock-outs", fontweight="bold")
+    # 6. brand grouping (paper Tables 6-7)
+    fig, ax = plt.subplots(figsize=(7.5, 4))
+    rows = grouping["rows"]
+    x = np.arange(len(rows) + 1)
+    orig = [r["index_original"] for r in rows] + [grouping["index_original"]]
+    rev = [r["index_revised"] for r in rows] + [grouping["index_revised"]]
+    b1 = ax.bar(x - 0.2, orig, 0.38, color=RED, label="original brand groups")
+    b2 = ax.bar(x + 0.2, rev, 0.38, color=BLUE, label="revised brand groups")
+    ax.bar_label(b1, fmt="%.0f", fontsize=8)
+    ax.bar_label(b2, fmt="%.0f", fontsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels([r["mill"] for r in rows] + ["All mills"])
+    ax.set_ylabel("fine-ore holding days (all mills, original = 100)")
+    ax.set_title(f"Revised brand grouping: {grouping['reduction']:.1f}% fewer holding days",
+                 fontweight="bold")
     ax.legend(fontsize=8)
-    files.append(_save(fig, "fig8_pareto_service_level.png"))
+    files.append(_save(fig, "fig6_brand_grouping.png"))
     return files
 
 
@@ -200,8 +185,11 @@ def _widths(ws, first=30, rest=13):
         ws.column_dimensions[get_column_letter(c)].width = rest
 
 
-def make_workbook(groups, summary, plans, grouping, pareto, chart_files):
+def make_workbook(groups, summary, grouping, chart_files):
     wb = Workbook()
+    n_pairs = sum(len(G["per_mill"]) for G in groups.values())
+    n_pass = sum(d["ks_p"] > 0.05 for G in groups.values() for d in G["per_mill"].values())
+    so = summary["stockout_rates"][PROP]
 
     # ------------------------------------------------------------------ Summary
     ws = wb.active
@@ -210,37 +198,33 @@ def make_workbook(groups, summary, plans, grouping, pareto, chart_files):
     ws["A1"].font = Font(bold=True, size=14)
     ws["A2"] = ("Kawakami, Kobayashi & Nakata (2021), INFORMS J. Applied Analytics 51(4). "
                 "All data are SYNTHETIC (see config.py); results show the method, not Nippon Steel's real figures.")
-    mip = plans["mip"]
     row = _table(ws, 4, ["Result", "Prototype", "Paper"], [
-        ["Inventory reduction, disruption season", f"{summary['min_reduction']:.1f} %", "6 % (winter)"],
-        ["Inventory reduction, calm season", f"{summary['max_reduction']:.1f} %", "14 % (summer)"],
+        ["Inventory reduction in winter", f"{summary['winter_reduction']:.1f} %", "6 %"],
+        ["Inventory reduction in summer", f"{summary['summer_reduction']:.1f} %", "14 %"],
         ["Inventory reduction, year average", f"{summary['avg_reduction']:.1f} %", "11 %"],
-        ["Mill/brand-group pairs passing KS test (p > 0.05)",
-         f"{sum(d['ks_p'] > 0.05 for G in groups.values() for d in G['per_mill'].values())} of "
-         f"{sum(len(G['per_mill']) for G in groups.values())}", "most (1 brand group failed)"],
-        ["Annual cost, manager policy (integer plan)", f"US$ {mip[MGR]['total'] / 1000:.1f} M", "-"],
-        ["Annual cost, proposed policy (integer plan)", f"US$ {mip[PROP]['total'] / 1000:.1f} M", "-"],
-        ["Demurrage saved per year", f"US$ {(mip[MGR]['demurrage'] - mip[PROP]['demurrage']) / 1000:.1f} M",
-         "at least US$ 4.5 M"],
-        ["Stock saved by optimal brand grouping (BIP)", f"{grouping['reduction']:.1f} %", "18.1 % (manual regrouping)"],
-        ["Stock saved by optimising service levels at equal risk", f"{pareto['saving']:.1f} %", "not done (limitation)"],
+        ["Mill/brand-group pairs passing KS test (p > 0.05)", f"{n_pass} of {n_pairs}",
+         "most (brand group 7 failed)"],
+        ["Shortage ratio in simulation (target 5 %)", f"{so['low']:.1f} % / {so['high']:.1f} %",
+         "within threshold except brand group 7"],
+        ["Holding days saved by revised brand grouping", f"{grouping['reduction']:.1f} %", "18.1 %"],
     ])
-    row = _table(ws, row, ["Model", "Course topic", "Where"], [
-        ["Seasonal arrival rate λ(t), MLE by Newton's method", "Nonlinear programming", "inventory_model.py"],
-        ["Shipping & yard plan with integer ships", "Integer programming, branch & bound", "optimisation.py (A)"],
-        ["LP relaxation, yard shadow prices, what-if on capacity", "LP, duality, sensitivity analysis", "optimisation.py (A)"],
-        ["Brand grouping as set partitioning", "Binary programming", "optimisation.py (B)"],
-        ["Inventory vs stock-out risk, ε-constraint", "Multi-objective optimisation", "optimisation.py (C)"],
+    row = _table(ws, row, ["Step", "What it does", "Presentation slide"], [
+        ["STEP 1", "Seasonal arrival rate λ(t) by maximum likelihood, harmonics by AIC", "Methodology: AAM, seasonality"],
+        ["STEP 2", "Every N_i-th ship goes to mill i, gap ~ Gamma(N_i, λ)", "Methodology: AEM"],
+        ["STEP 3", "Z = G⁻¹(α) − G⁻¹(50%),  optimal stock = cycle + Z", "Calculating Safety Stock (Z)"],
+        ["STEP 4", "Kolmogorov-Smirnov test of the gamma model", "Validation: statistical"],
+        ["STEP 5", "Inventory simulation on fresh years, shortage ratio", "Validation: simulation"],
+        ["STEP 6", "All mills together, % of manager policy", "Results: 14 % summer / 6 % winter"],
+        ["STEP 7", "Original vs revised brand grouping", "Results: revised brand grouping"],
     ])
     _table(ws, row, ["Key assumption", "Value"], [
         ["Service level α", C.SERVICE_LEVEL], ["Lot size (one ship) [kt]", C.LOT_KT],
         ["Manager policy: flat, worst season + margin", C.MANAGER_MARGIN],
-        ["Holding cost [US$/t-month]", C.HOLDING_COST], ["Demurrage cost [US$/t-month]", C.DEMURRAGE_COST],
-        ["Shortfall penalty [US$/t-month]", C.SHORTFALL_PENALTY],
-        ["Yard capacity / manager-policy stock", C.YARD_TIGHTNESS],
-        ["Demand", "constant (as in the paper)"], ["History used", f"{C.YEARS_HISTORY} yrs seasonality, {C.YEARS_RECENT} yrs mill ratio"],
+        ["Demand", "constant (as in the paper)"],
+        ["History used", f"{C.YEARS_HISTORY} yrs seasonality, {C.YEARS_RECENT} yrs mill ratio"],
+        ["Scale", f"{len(C.MILLS)} mills, {len(C.BRAND_GROUPS)} brand groups (paper: 8 and 10)"],
     ])
-    _widths(ws, 52, 34)
+    _widths(ws, 52, 40)
 
     # --------------------------------------------------------------- Calculator
     ws = wb.create_sheet("Calculator")
@@ -317,7 +301,7 @@ def make_workbook(groups, summary, plans, grouping, pareto, chart_files):
             for g, G in groups.items() for m, d in G["per_mill"].items()]
     row = _table(ws, 1, ["Brand group", "Mill", "Intervals tested", "KS statistic D", "KS p-value", "Gamma model"], rows, "0.000")
     rows = [[pol, r["low"], r["high"]] for pol, r in summary["stockout_rates"].items()]
-    row = _table(ws, row, ["Policy (stock-out % of cycles, out of sample)", "Disruption season", "Calm season"], rows)
+    row = _table(ws, row, ["Policy (shortage ratio %, simulation)", "Disruption season", "Calm season"], rows)
     rows = []
     for g, G in groups.items():
         t = G["fit"]["aic_table"]
@@ -326,49 +310,21 @@ def make_workbook(groups, summary, plans, grouping, pareto, chart_files):
     _table(ws, row, ["NHPP fit: brand group", "Harmonics", "Parameters", "Log-likelihood", "AIC", "Newton iterations", ""], rows)
     _widths(ws, 44, 16)
 
-    # ------------------------------------------------------------ Shipping plan
-    ws = wb.create_sheet("Shipping plan")
-    rows = [[pol, r["status"], r["holding"], r["demurrage"], r["penalty"], r["total"], r["avg_inv"],
-             plans["lp"][pol]["total"]] for pol, r in mip.items()]
-    row = _table(ws, 1, ["Policy", "Solver status", "Holding [k$]", "Demurrage [k$]", "Shortfall penalty [k$]",
-                         "Total cost [k$]", "Average stock [kt]", "LP relaxation bound [k$]"], rows, "#,##0")
-    for pol, r in mip.items():
-        ws.cell(row=row, column=1, value=f"{pol}: ships unloaded per month").font = Font(bold=True)
-        row = _table(ws, row + 1, ["Brand group / mill"] + C.MONTHS + ["Year"],
-                     [[f"{g} - {m}"] + [int(round(v)) for v in s] + [int(round(s.sum()))] for (g, m), s in r["ships"].items()])
-        row = _table(ws, row, ["Yard stock at month end [kt]"] + C.MONTHS + ["Capacity"],
-                     [[m] + list(r["mill_inv"][m]) + [r["cap"][m]] for m in C.MILLS], "#,##0")
-        row = _table(ws, row, ["Cargo waiting at sea [kt]"] + C.MONTHS,
-                     [[m] + list(r["wait"][m]) for m in C.MILLS], "#,##0")
-    _table(ws, row, ["Yard capacity (x base)", "Manager cost [k$]", "Proposed cost [k$]", "Manager demurrage [k$]",
-                     "Proposed demurrage [k$]", "Manager shadow price [k$/kt-yr]", "Proposed shadow price [k$/kt-yr]"],
-           [[s["scale"], s[MGR], s[PROP], s[MGR + " demurrage"], s[PROP + " demurrage"], s[MGR + " shadow"],
-             s[PROP + " shadow"]] for s in plans["sensitivity"]], "#,##0.00")
-    _widths(ws, 40, 13)
-
     # ----------------------------------------------------------- Brand grouping
     ws = wb.create_sheet("Brand grouping")
     fmt = lambda grp: "  |  ".join("+".join(b.replace("Brand ", "B") for b in g) for g in grp)
-    row = _table(ws, 1, ["Mill", "Original groups", "BIP-optimal groups", "Stock individual [kt]",
-                         "Stock original [kt]", "Stock optimal [kt]", "Reduction"],
-                 [[r["mill"], fmt(r["original"]), fmt(r["optimal"]), r["cost_individual"], r["cost_original"],
-                   r["cost_optimal"], f"{100 * (1 - r['cost_optimal'] / r['cost_original']):.1f} %"] for r in grouping["rows"]]
-                 + [["All mills", "", "", grouping["total_individual"], grouping["total_original"],
-                     grouping["total_optimal"], f"{grouping['reduction']:.1f} %"]], "#,##0")
-    _table(ws, row, ["Brand", "Fe grade [%]"] + [f"Ships/yr {m}" for m in C.MILLS],
-           [[b, fe] + q for b, (fe, q) in C.FINE_BRANDS.items()], "0.0")
-    _widths(ws, 14, 16)
-    ws.column_dimensions["B"].width = ws.column_dimensions["C"].width = 44
-
-    # ------------------------------------------------------------------- Pareto
-    ws = wb.create_sheet("Pareto")
-    row = _table(ws, 1, ["Risk limit ε [stock-outs/yr]", "Stock-outs/yr achieved", "Total stock [kt]"],
-                 [[f["eps"], f["risk"], f["inv"]] for f in pareto["frontier"]], "#,##0.0")
-    row = _table(ws, row, ["Same service level everywhere", "Stock-outs/yr", "Total stock [kt]"],
-                 [[u["alpha"], u["risk"], u["inv"]] for u in pareto["uniform"]], "#,##0.000")
-    _table(ws, row, [f"Optimal service levels at the risk of 'α = {C.SERVICE_LEVEL} everywhere'", "Mill", "α chosen"],
-           [[g, m, a] for (g, m), a in pareto["same_risk"]["alphas"].items()], "0.000")
-    _widths(ws, 44, 22)
+    row = _table(ws, 1, ["Grouping", "Groups"], [["Original (paper Table 4)", fmt(C.ORIGINAL_GROUPS)],
+                                                  ["Revised (paper Table 5)", fmt(C.REVISED_GROUPS)]])
+    row = _table(ws, row, ["Mill", "Stock original [kt]", "Stock revised [kt]",
+                           "Holding days original (index)", "Holding days revised (index)"],
+                 [[r["mill"], r["stock_original"], r["stock_revised"], r["index_original"], r["index_revised"]]
+                  for r in grouping["rows"]]
+                 + [["All mills", grouping["total_original"], grouping["total_revised"],
+                     grouping["index_original"], grouping["index_revised"]]], "#,##0.0")
+    _table(ws, row, ["Brand"] + [f"Ships/yr {m}" for m in C.MILLS],
+           [[b] + q for b, q in C.FINE_BRANDS.items()], "0")
+    _widths(ws, 26, 22)
+    ws.column_dimensions["B"].width = 50
 
     # ------------------------------------------------------------------- Charts
     ws = wb.create_sheet("Charts")

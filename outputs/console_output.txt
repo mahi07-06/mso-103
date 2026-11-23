@@ -1,72 +1,73 @@
 
 ==============================================================================
-PART 1  Paper replication: two-stage arrival model and seasonal safety stock
+STEP 1-3  Two-stage arrival model and safety stock (slides: Methodology, Safety Stock)
 ==============================================================================
 
-Fine ore (Australia): 1222 ships in 10 years
-  Stage 1 (NHPP, MLE by Newton): AIC [0 harm: 5120.3, 1 harm: 5110.9, 2 harm: 5113.9, 3 harm: 5117.7] -> 1 harmonic(s) selected
-  mill       N_i   cycle   Z low  Z high  manager Z   KS p   (days of usage)
-  Mill A    2.85     4.3     9.3    12.6       13.2   0.79
-  Mill B    3.36     5.1    10.0    13.5       14.1   0.46
-  Mill C    5.00     7.6    11.8    15.9       16.7   0.70
-  Mill D    6.62    10.1    13.3    17.9       18.8   0.93
+Fine ore (Australia): 1206 ships in 10 years
+  Stage 1 (AAM): AIC by number of harmonics [0: 5085.1, 1: 5082.1, 2: 5085.2, 3: 5087.6] -> 1 selected
+  Stage 2 (AEM) and safety stock, in days of usage:
+  mill       N_i   cycle   Z low  Z high  manager Z
+  Mill A    2.86     4.3     9.7    12.1       12.7
+  Mill B    3.34     5.1    10.4    12.9       13.5
+  Mill C    5.04     7.7    12.3    15.3       16.1
+  Mill D    6.58    10.0    13.8    17.1       18.0
 
-Lump ore (Australia): 579 ships in 10 years
-  Stage 1 (NHPP, MLE by Newton): AIC [0 harm: 3292.1, 1 harm: 3285.3, 2 harm: 3289.0, 3 harm: 3288.1] -> 1 harmonic(s) selected
-  mill       N_i   cycle   Z low  Z high  manager Z   KS p   (days of usage)
-  Mill A    2.49     7.6    17.0    25.0       26.2   0.33
-  Mill B    2.91     8.9    18.1    26.7       28.0   0.75
-  Mill C    3.92    11.9    20.5    30.2       31.7   0.18
+Lump ore (Australia): 574 ships in 10 years
+  Stage 1 (AAM): AIC by number of harmonics [0: 3273.6, 1: 3273.4, 2: 3276.5, 3: 3275.8] -> 1 selected
+  Stage 2 (AEM) and safety stock, in days of usage:
+  mill       N_i   cycle   Z low  Z high  manager Z
+  Mill A    2.51     7.6    18.2    23.2       24.4
+  Mill B    2.92     8.9    19.4    24.7       25.9
+  Mill C    3.86    11.7    21.7    27.7       29.1
 
-Pellet (Brazil): 381 ships in 10 years
-  Stage 1 (NHPP, MLE by Newton): AIC [0 harm: 2485.9, 1 harm: 2483.4, 2 harm: 2481.1, 3 harm: 2482.8] -> 2 harmonic(s) selected
-  mill       N_i   cycle   Z low  Z high  manager Z   KS p   (days of usage)
-  Mill B    1.97     9.0    22.6    41.7       43.8   0.44
-  Mill C    3.41    15.6    28.3    52.2       54.8   0.08
-  Mill D    5.00    22.8    33.2    61.3       64.4   0.66
-
-All mills, proposed inventory as % of manager policy, by month:
-  Jan 82  Feb 87  Mar 93  Apr 95  May 89  Jun 81  Jul 74  Aug 72  Sep 73  Oct 76  Nov 77  Dec 79
-  -> reduction 4.6% (disruption season) to 27.9% (calm season), 18.5% on average   [paper: 6% / 14% / 11%]
-
-Out-of-sample stock-out rate per replenishment cycle (target 5%):
-  Proposed (seasonal)    disruption season   5.6%   calm season   7.0%
-  No seasonality         disruption season   9.2%   calm season   4.5%
-  Manager (flat)         disruption season   5.0%   calm season   2.0%
+Pellet (Brazil): 437 ships in 10 years
+  Stage 1 (AAM): AIC by number of harmonics [0: 2731.1, 1: 2728.7, 2: 2730.0, 3: 2732.6] -> 1 selected
+  Stage 2 (AEM) and safety stock, in days of usage:
+  mill       N_i   cycle   Z low  Z high  manager Z
+  Mill B    1.98     9.0    23.6    33.3       35.0
+  Mill C    3.40    15.5    29.5    41.6       43.7
+  Mill D    5.00    22.8    34.7    48.9       51.4
 
 ==============================================================================
-PART 2A  Shipping & yard plan  (integer programming + LP sensitivity)
+STEP 4  Statistical validation: Kolmogorov-Smirnov test (slide: Validation)
 ==============================================================================
-solving 2 integer models (up to 30s each) and 16 LPs ...
-  policy                   holding  demurrage  penalty    TOTAL  avg stock   [k$ / kt]
-  Manager (flat)             31826      15100     2841    49767       3789   Solution Found
-  Proposed (seasonal)        28010       2742     1220    31972       3334   Solution Found
-  -> proposed policy saves US$ 17.8 M per year, of which US$ 12.4 M is demurrage
-  yard-capacity what-if (LP relaxation):  cost [k$]  and shadow price [k$ per kt of yard per year]
-    yard x0.80:  manager   57668 (shadow  42.0)   proposed   29479 (shadow  20.1)
-    yard x0.85:  manager   50460 (shadow  42.0)   proposed   26677 (shadow  14.9)
-    yard x0.90:  manager   43251 (shadow  42.0)   proposed   24622 (shadow   8.8)
-    yard x0.95:  manager   36043 (shadow  42.0)   proposed   23552 (shadow   2.6)
-    yard x1.00:  manager   28834 (shadow   0.0)   proposed   23513 (shadow   0.0)
-    yard x1.05:  manager   28834 (shadow   0.0)   proposed   23513 (shadow   0.0)
-    yard x1.10:  manager   28834 (shadow   0.0)   proposed   23513 (shadow   0.0)
+  Fine ore (Australia)   Mill A   p-value 0.47  pass
+  Fine ore (Australia)   Mill B   p-value 0.33  pass
+  Fine ore (Australia)   Mill C   p-value 0.41  pass
+  Fine ore (Australia)   Mill D   p-value 0.53  pass
+  Lump ore (Australia)   Mill A   p-value 0.47  pass
+  Lump ore (Australia)   Mill B   p-value 0.63  pass
+  Lump ore (Australia)   Mill C   p-value 0.73  pass
+  Pellet (Brazil)        Mill B   p-value 0.92  pass
+  Pellet (Brazil)        Mill C   p-value 0.73  pass
+  Pellet (Brazil)        Mill D   p-value 0.52  pass
+  -> 10 of 10 pass   [paper: most pass, brand group 7 fails]
 
 ==============================================================================
-PART 2B  Brand grouping  (binary programming, set partitioning)
+STEP 5  Simulation validation: shortage ratio on fresh data (slide: Validation)
 ==============================================================================
-54 candidate groups, solver: Optimal
-  Mill A:   1545 kt ->   1201 kt   groups: B4 | B5 | B6+B8 | B1+B2+B3
-  Mill B:   1431 kt ->   1131 kt   groups: B1 | B8 | B2+B4 | B5+B6+B7
-  Mill C:   1627 kt ->    546 kt   groups: B2+B3+B4 | B6+B7+B8
-  Mill D:   1302 kt ->    765 kt   groups: B8 | B1+B3 | B5+B7
-  -> 38.3% less fine-ore stock than the original grouping   [paper: 18.1%]
+  share of replenishment cycles with a stock-out (target 5%):
+  Proposed (seasonal)    disruption season   5.2%   calm season   7.1%
+  No seasonality         disruption season   7.5%   calm season   5.0%
+  Manager (flat)         disruption season   5.0%   calm season   2.7%
 
 ==============================================================================
-PART 2C  Service level vs inventory  (multi-objective, epsilon-constraint)
+STEP 6  Results: seasonal inventory vs manager policy (slide: Results)
 ==============================================================================
-  stock-outs/yr -> minimum total stock [kt]:
-  1: 4306   10: 2788   18: 2315   27: 2025   35: 1831   44: 1699
-  -> same risk as '95% everywhere' with 2.2% less stock by choosing the service level per mill and brand group
+  all mills, proposed inventory as % of manager policy, by month:
+  Jan 95  Feb 96  Mar 95  Apr 93  May 89  Jun 85  Jul 82  Aug 81  Sep 81  Oct 84  Nov 87  Dec 91
+  -> 6.2% less in winter, 17.4% less in summer, 11.8% on average   [paper: 6% / 14% / 11%]
+
+==============================================================================
+STEP 7  Results: revised brand grouping (slide: Results)
+==============================================================================
+  mill      original   revised   (fine-ore holding days, all mills original = 100)
+  Mill A        74.8      60.0
+  Mill B        80.8      66.4
+  Mill C       137.8     115.7
+  Mill D       147.0     118.6
+  All          100.0      81.9
+  -> 18.1% fewer holding days   [paper: 18.1%]
 
 ==============================================================================
 Writing charts and Excel workbook
@@ -75,10 +76,8 @@ Writing charts and Excel workbook
   C:\Users\Owner\mso_103\outputs\fig2_gamma_fit_per_mill.png
   C:\Users\Owner\mso_103\outputs\fig3_seasonal_optimal_inventory.png
   C:\Users\Owner\mso_103\outputs\fig4_stockout_validation.png
-  C:\Users\Owner\mso_103\outputs\fig5_shipping_plan_yard.png
-  C:\Users\Owner\mso_103\outputs\fig6_cost_and_yard_sensitivity.png
-  C:\Users\Owner\mso_103\outputs\fig7_brand_grouping.png
-  C:\Users\Owner\mso_103\outputs\fig8_pareto_service_level.png
+  C:\Users\Owner\mso_103\outputs\fig5_inventory_simulation.png
+  C:\Users\Owner\mso_103\outputs\fig6_brand_grouping.png
   C:\Users\Owner\mso_103\outputs\Steel_Inventory_Prototype.xlsx
 
-Done in 65 s.
+Done in 1 s.

@@ -1,15 +1,16 @@
 """
-inventory_model.py  -  PART 1: the paper's inventory model, step by step.
+inventory_model.py  -  the paper's inventory model, step by step.
 
-Read this file from top to bottom. Each STEP is one small function.
+Read this file from top to bottom. Each STEP is one small function and
+matches a slide of our paper presentation.
 
-  STEP 0  Make synthetic ship-arrival data          (the real data is confidential)
-  STEP 1  Fit the seasonal arrival rate lambda(t)   (paper eq. 6, "Stage 1: AAM")
-  STEP 2  Find N_i = every N-th ship goes to mill i (paper eq. 3, "Stage 2: AEM")
-  STEP 3  Safety stock Z and optimal stock I        (paper eq. 4 and 8)
-  STEP 4  KS test: does the gamma model fit?        (paper Table 1)
-  STEP 5  Stock-out check on fresh data             (paper Tables 2 and 3)
-  STEP 6  Add everything up for all mills           (paper Figure 8)
+  STEP 0  Make synthetic ship-arrival data          slide "Data & Input Validation"
+  STEP 1  Fit the seasonal arrival rate lambda(t)   slide "Methodology": Stage 1 AAM, seasonality
+  STEP 2  Find N_i = every N-th ship goes to mill i slide "Methodology": Stage 2 AEM, Gamma
+  STEP 3  Safety stock Z and optimal stock I        slide "Calculating Safety Stock (Z)"
+  STEP 4  KS test: does the gamma model fit?        slide "Validation": statistical validation
+  STEP 5  Inventory simulation on fresh data        slide "Validation": simulation validation
+  STEP 6  Add everything up for all mills           slide "Results": 14 % summer / 6 % winter
 
 Units: time in days, stock in "days of usage" (1 day of usage = what the mill burns in a day).
 """
@@ -88,16 +89,17 @@ def fourier_columns(t, harmonics):
     return np.column_stack(columns)
 
 
-def fit_nhpp(times, years, max_order=3, min_aic_gain=2.0):
+def fit_nhpp(times, years, max_order=3):
     """
     Fit  lambda(t) = exp(A1 + A2 cos(2 pi t/P) + B2 sin(2 pi t/P) + ...)   (paper eq. 6)
 
-    This is an optimisation problem (nonlinear programming, no constraints):
+    "Maximum likelihood" = choose the A's and B's that make the ships we actually
+    saw as likely as possible. This is an unconstrained nonlinear optimisation:
         maximise   log-likelihood = sum over ships of log lambda(t_i)  -  total expected ships
     We solve it with Newton's method:  new = old - (gradient / Hessian).
 
-    We try 0, 1, 2, 3 harmonics and keep the one with the best AIC score
-    (AIC = 2 x number of coefficients - 2 x log-likelihood; lower is better).
+    We try 0, 1, 2, 3 harmonics and keep the one with the lowest AIC, as the paper does
+    (AIC = 2 x number of coefficients - 2 x log-likelihood; it punishes extra terms).
     """
     day_of_year = times % C.P
     best = None
@@ -135,8 +137,8 @@ def fit_nhpp(times, years, max_order=3, min_aic_gain=2.0):
         aic_table.append(dict(order=harmonics, n_params=len(coef), loglik=current,
                               aic=aic, newton_iters=iteration))
 
-        # keep this model only if it is clearly better (AIC lower by at least 2)
-        if best is None or aic < best["aic"] - min_aic_gain:
+        # keep the model with the lowest AIC (paper: "minimizing the value of the AIC")
+        if best is None or aic < best["aic"]:
             best = dict(order=harmonics, theta=coef, aic=aic, lam_day=np.exp(X_days @ coef))
 
     best["aic_table"] = aic_table
@@ -181,8 +183,9 @@ def analyse_mill(mill_index, mill, cfg, data):
 
     ks_statistic, ks_p_value = ks_test(rescaled_gaps, model_cdf)
 
-    # ---- STEP 5: stock-out check on 30 fresh years the model has never seen.
-    # A stock-out happens when the gap to the next ship is longer than the stock covers.
+    # ---- STEP 5: inventory simulation on 30 fresh years the model has never seen.
+    # Each ship tops the yard up to the planned level; the mill then burns 1 day of
+    # stock per day. A stock-out happens when the next ship comes later than the stock lasts.
     test_arrivals = data["test_times"][data["test_dest"] == mill_index]
     gaps = np.diff(test_arrivals)
     start_day = (test_arrivals[:-1] % C.P).astype(int)
@@ -243,7 +246,8 @@ def analyse_group(name, cfg, rng_hist, rng_test):
 
     result = dict(name=name, mills=mills, times=times, dest=dest, fit=fit, lam_now=lam_now,
                   lam_bar=lam_bar, lam_true=true_intensity(cfg, DAYS),
-                  low_season=data["low_season"], per_mill={})
+                  low_season=data["low_season"], test_times=test_times, test_dest=test_dest,
+                  per_mill={})
     for mill_index, mill in enumerate(mills):
         result["per_mill"][mill] = analyse_mill(mill_index, mill, cfg, data)
     return result
@@ -277,13 +281,19 @@ def run_all():
     month_of_day = np.repeat(np.arange(12), C.MONTH_DAYS)
     monthly = np.array([percent_of_manager[month_of_day == k].mean() for k in range(12)])
 
+    # the paper reports the saving in summer and in winter
+    winter_days = np.isin(month_of_day, [C.MONTHS.index(m) for m in C.WINTER])
+    summer_days = np.isin(month_of_day, [C.MONTHS.index(m) for m in C.SUMMER])
+
     summary = dict(
         pct_daily=percent_of_manager, pct_monthly=monthly,
         stat_pct=100.0 * no_season / manager,
         mgr_days=manager / total_usage, prop_days=proposed / total_usage,
         avg_reduction=100 - percent_of_manager.mean(),
-        max_reduction=100 - percent_of_manager.min(),     # calm season
-        min_reduction=100 - percent_of_manager.max())     # disruption season
+        winter_reduction=100 - percent_of_manager[winter_days].mean(),
+        summer_reduction=100 - percent_of_manager[summer_days].mean(),
+        max_reduction=100 - percent_of_manager.min(),     # best day
+        min_reduction=100 - percent_of_manager.max())     # worst day
 
     # ---- stock-out rate of each policy, all mills together
     counts = {}
@@ -297,7 +307,9 @@ def run_all():
                     counts[policy][season][1] += result[season][1]     # cycles
     summary["stockout_rates"] = {}
     for policy, by_season in counts.items():
-        summary["stockout_rates"][policy] = {
-            season: 100.0 * c[0] / c[1] for season, c in by_season.items()}
+        summary["stockout_rates"][policy] = {}
+        for season, (stockouts, cycles) in by_season.items():
+            # if the model found no seasonality there is no "low season": report 0 cycles as 0 %
+            summary["stockout_rates"][policy][season] = 100.0 * stockouts / cycles if cycles else 0.0
 
     return groups, summary
